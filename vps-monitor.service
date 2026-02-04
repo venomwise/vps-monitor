@@ -1,0 +1,27 @@
+[Unit]
+Description=VPS Monitor Service
+Documentation=https://github.com/your-repo/vps-monitor
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/vps-monitor
+ExecStart=/usr/bin/python3 /opt/vps-monitor/monitor.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# 安全设置
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/vps-monitor
+
+# 环境变量
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

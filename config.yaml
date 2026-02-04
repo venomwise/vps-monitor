@@ -1,0 +1,65 @@
+# VPS 监控配置文件
+# 文件路径: /opt/vps-monitor/config.yaml
+
+# 基础配置
+general:
+  hostname: ""              # 留空则自动获取主机名
+  check_interval: 900       # 检查间隔（秒），默认 15 分钟
+  alert_cooldown: 300       # 告警冷却时间（秒），默认 5 分钟
+  send_recovery: true       # 是否发送恢复通知
+  log_level: "INFO"         # 日志级别: DEBUG, INFO, WARNING, ERROR
+
+# 企业微信机器人配置
+wechat:
+  webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+
+# 系统监控配置
+system:
+  memory:
+    enabled: true
+    threshold: 80           # 内存使用率阈值 (%)
+  disk:
+    enabled: true
+    threshold: 80           # 磁盘使用率阈值 (%)
+    paths:                  # 要监控的磁盘路径，留空则只监控根目录
+      - "/"
+  cpu:
+    enabled: true
+    threshold: 80           # CPU 使用率阈值 (%)
+    sample_interval: 1      # CPU 采样间隔（秒）
+  swap:
+    enabled: true
+    threshold: 80           # Swap 使用率阈值 (%)
+
+# 网络监控配置
+network:
+  traffic:
+    enabled: true
+    threshold_mbps: 100     # 流量阈值 (Mbps)
+    sample_interval: 5      # 流量采样间隔（秒）
+  connections:
+    enabled: true
+    threshold: 1000         # 连接数阈值
+
+# Docker 监控配置
+docker:
+  enabled: true
+  socket: "unix://var/run/docker.sock"  # Docker socket 路径
+  containers:               # 要监控的容器列表
+    - name: "nginx"
+      check_health: true    # 是否检查健康状态
+    - name: "mysql"
+      check_health: true
+    - name: "redis"
+      check_health: false
+
+# 定时状态报告配置
+scheduled_report:
+  enabled: true
+  cron: "0 9 * * *"         # Cron 表达式，示例：每天早上 9 点
+  # 常用 Cron 示例:
+  # "0 9 * * *"     - 每天 9:00
+  # "0 9,18 * * *"  - 每天 9:00 和 18:00
+  # "0 */6 * * *"   - 每 6 小时
+  # "0 9 * * 1"     - 每周一 9:00
+  # "0 0 1 * *"     - 每月 1 号 0:00
