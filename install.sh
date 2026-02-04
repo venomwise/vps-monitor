@@ -23,6 +23,19 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# 检查 Python3 和 pip3
+if ! command -v python3 &> /dev/null; then
+    echo_error "未找到 python3，请先安装 Python 3.9+"
+    exit 1
+fi
+
+if ! command -v pip3 &> /dev/null; then
+    echo_error "未找到 pip3，请先安装："
+    echo "  Ubuntu/Debian: sudo apt install -y python3-pip"
+    echo "  CentOS/RHEL:   sudo yum install -y python3-pip"
+    exit 1
+fi
+
 echo_info "开始安装 VPS 监控系统..."
 
 # 创建安装目录
@@ -30,22 +43,29 @@ echo_info "创建安装目录: $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$INSTALL_DIR/logs"
 
-# 复制文件
-echo_info "复制程序文件..."
-cp "$SCRIPT_DIR/monitor.py" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
-
-# 检查配置文件
-if [ -f "$INSTALL_DIR/config.yaml" ]; then
-    echo_warn "配置文件已存在，跳过复制（请手动更新配置）"
+# 复制文件（如果源目录和安装目录不同）
+if [ "$SCRIPT_DIR" = "$INSTALL_DIR" ]; then
+    echo_info "检测到已在安装目录运行，跳过文件复制"
 else
-    cp "$SCRIPT_DIR/config.yaml" "$INSTALL_DIR/"
-    echo_info "已复制配置文件模板，请编辑 $INSTALL_DIR/config.yaml"
+    echo_info "复制程序文件..."
+    cp "$SCRIPT_DIR/monitor.py" "$INSTALL_DIR/"
+    cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
+
+    # 检查配置文件
+    if [ -f "$INSTALL_DIR/config.yaml" ]; then
+        echo_warn "配置文件已存在，跳过复制（请手动更新配置）"
+    else
+        cp "$SCRIPT_DIR/config.yaml" "$INSTALL_DIR/"
+        echo_info "已复制配置文件模板，请编辑 $INSTALL_DIR/config.yaml"
+    fi
 fi
 
 # 安装 Python 依赖
 echo_info "安装 Python 依赖..."
-pip3 install -r "$INSTALL_DIR/requirements.txt" -q
+if ! pip3 install -r "$INSTALL_DIR/requirements.txt" -q; then
+    echo_error "Python 依赖安装失败，请检查网络连接或手动安装"
+    exit 1
+fi
 
 # 安装 systemd 服务
 echo_info "安装 systemd 服务..."
