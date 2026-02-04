@@ -438,17 +438,20 @@ class SystemCollector:
 
         return result
 
-    def check_thresholds(self) -> List[Dict]:
-        """检查阈值并返回告警列表"""
+    def check_thresholds(self) -> tuple[List[Dict], set]:
+        """检查阈值并返回告警列表和所有被检查的 key 集合"""
         alerts = []
+        checked_keys = set()  # 所有被检查的 key（无论是否超阈值）
         data = self.collect_all()
 
         # 内存检查
         if 'memory' in data:
+            key = 'system_memory'
+            checked_keys.add(key)
             threshold = self.config.get('system', 'memory', 'threshold', default=80)
             if data['memory']['percent'] > threshold:
                 alerts.append({
-                    'key': 'system_memory',
+                    'key': key,
                     'metric': '内存使用率',
                     'value': f"{data['memory']['percent']:.1f}%",
                     'threshold': f"{threshold}%"
@@ -456,10 +459,12 @@ class SystemCollector:
 
         # Swap 检查
         if 'swap' in data:
+            key = 'system_swap'
+            checked_keys.add(key)
             threshold = self.config.get('system', 'swap', 'threshold', default=80)
             if data['swap'] > threshold:
                 alerts.append({
-                    'key': 'system_swap',
+                    'key': key,
                     'metric': 'Swap使用率',
                     'value': f"{data['swap']:.1f}%",
                     'threshold': f"{threshold}%"
@@ -469,9 +474,11 @@ class SystemCollector:
         if 'disk' in data:
             threshold = self.config.get('system', 'disk', 'threshold', default=80)
             for path, disk_data in data['disk'].items():
+                key = f'system_disk_{path}'
+                checked_keys.add(key)
                 if disk_data['percent'] > threshold:
                     alerts.append({
-                        'key': f'system_disk_{path}',
+                        'key': key,
                         'metric': f'磁盘使用率({path})',
                         'value': f"{disk_data['percent']:.1f}%",
                         'threshold': f"{threshold}%"
@@ -479,16 +486,18 @@ class SystemCollector:
 
         # CPU 检查
         if 'cpu' in data:
+            key = 'system_cpu'
+            checked_keys.add(key)
             threshold = self.config.get('system', 'cpu', 'threshold', default=80)
             if data['cpu'] > threshold:
                 alerts.append({
-                    'key': 'system_cpu',
+                    'key': key,
                     'metric': 'CPU使用率',
                     'value': f"{data['cpu']:.1f}%",
                     'threshold': f"{threshold}%"
                 })
 
-        return alerts
+        return alerts, checked_keys
 
 
 # ============================================================================
@@ -549,24 +558,31 @@ class NetworkCollector:
 
         return result
 
-    def check_thresholds(self) -> List[Dict]:
-        """检查阈值并返回告警列表"""
+    def check_thresholds(self) -> tuple[List[Dict], set]:
+        """检查阈值并返回告警列表和所有被检查的 key 集合"""
         alerts = []
+        checked_keys = set()  # 所有被检查的 key（无论是否超阈值）
         data = self.collect_all()
 
         # 流量检查
         if 'traffic' in data:
             threshold = self.config.get('network', 'traffic', 'threshold_mbps', default=100)
+            # 入站流量
+            key_in = 'network_traffic_in'
+            checked_keys.add(key_in)
             if data['traffic']['in_mbps'] > threshold:
                 alerts.append({
-                    'key': 'network_traffic_in',
+                    'key': key_in,
                     'metric': '入站流量',
                     'value': f"{data['traffic']['in_mbps']:.1f} Mbps",
                     'threshold': f"{threshold} Mbps"
                 })
+            # 出站流量
+            key_out = 'network_traffic_out'
+            checked_keys.add(key_out)
             if data['traffic']['out_mbps'] > threshold:
                 alerts.append({
-                    'key': 'network_traffic_out',
+                    'key': key_out,
                     'metric': '出站流量',
                     'value': f"{data['traffic']['out_mbps']:.1f} Mbps",
                     'threshold': f"{threshold} Mbps"
@@ -574,16 +590,18 @@ class NetworkCollector:
 
         # 连接数检查
         if 'connections' in data and data['connections'] >= 0:
+            key = 'network_connections'
+            checked_keys.add(key)
             threshold = self.config.get('network', 'connections', 'threshold', default=1000)
             if data['connections'] > threshold:
                 alerts.append({
-                    'key': 'network_connections',
+                    'key': key,
                     'metric': '网络连接数',
                     'value': str(data['connections']),
                     'threshold': str(threshold)
                 })
 
-        return alerts
+        return alerts, checked_keys
 
 
 # ============================================================================
@@ -857,12 +875,17 @@ class VPSMonitor:
 
         return report
 
-    def _process_system_alerts(self, alerts: List[Dict]):
-        """处理系统告警"""
+    def _process_system_alerts(self, alerts: List[Dict], checked_keys: set):
+        """处理系统告警
+
+        Args:
+            alerts: 超阈值的告警列表
+            checked_keys: 所有被检查的 key 集合（无论是否超阈值）
+        """
         hostname = self.config.hostname
         send_recovery = self.config.get('general', 'send_recovery', default=True)
 
-        # 获取当前告警的 key 集合
+        # 获取当前超阈值的 key 集合
         current_alert_keys = {a['key'] for a in alerts}
 
         # 先发送新告警（在恢复检查之前，避免同时发送告警和恢复）
@@ -875,16 +898,16 @@ class VPSMonitor:
         if alerts_to_send:
             self.notifier.send_alert(hostname, alerts_to_send)
 
-        # 检查恢复（只有当前没有触发告警的 key 才发送恢复）
+        # 检查恢复：只有当指标被检查过且低于阈值时才发送恢复
         if send_recovery:
             for active_key in self.alert_manager.get_active_alerts():
                 # 只处理 system_ 或 network_ 前缀的告警
-                if (active_key.startswith('system_') or active_key.startswith('network_')) \
-                        and active_key not in current_alert_keys:
-                    # 生成友好的恢复消息
-                    metric_name = self._get_metric_display_name(active_key)
-                    self.notifier.send_recovery(hostname, metric_name, "已恢复正常")
-                    self.alert_manager.clear_alert(active_key)
+                if (active_key.startswith('system_') or active_key.startswith('network_')):
+                    # 关键条件：该 key 必须在本次检查中被检查过，且当前低于阈值
+                    if active_key in checked_keys and active_key not in current_alert_keys:
+                        metric_name = self._get_metric_display_name(active_key)
+                        self.notifier.send_recovery(hostname, metric_name, "已恢复正常")
+                        self.alert_manager.clear_alert(active_key)
 
     def _get_metric_display_name(self, alert_key: str) -> str:
         """将告警 key 转换为友好的显示名称"""
@@ -938,12 +961,14 @@ class VPSMonitor:
         logging.debug("开始监控检查...")
 
         # 系统监控
-        system_alerts = self.system_collector.check_thresholds()
-        self._process_system_alerts(system_alerts)
-
+        system_alerts, system_checked_keys = self.system_collector.check_thresholds()
         # 网络监控
-        network_alerts = self.network_collector.check_thresholds()
-        self._process_system_alerts(network_alerts)
+        network_alerts, network_checked_keys = self.network_collector.check_thresholds()
+
+        # 合并系统和网络的告警及检查 key
+        all_alerts = system_alerts + network_alerts
+        all_checked_keys = system_checked_keys | network_checked_keys
+        self._process_system_alerts(all_alerts, all_checked_keys)
 
         # Docker 监控
         docker_alerts = self.docker_collector.check_containers()
