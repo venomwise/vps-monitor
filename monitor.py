@@ -179,80 +179,92 @@ class WeChatNotifier:
         if not alerts:
             return False
 
-        lines = [f"⚠️ **VPS 告警** [{hostname}]", "━━━━━━━━━━━━━━━━"]
+        lines = [
+            f"### <font color=\"warning\">VPS 告警</font> [{hostname}]",
+            ""
+        ]
         for alert in alerts:
-            lines.append(f"📊 {alert['metric']}: {alert['value']} (阈值: {alert['threshold']})")
-        lines.append(f"⏰ 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            lines.append(f"> **{alert['metric']}**: <font color=\"warning\">{alert['value']}</font>")
+            lines.append(f"> 阈值: <font color=\"comment\">{alert['threshold']}</font>")
+            lines.append("")
+        lines.append(f"**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         return self.send('\n'.join(lines))
 
     def send_docker_alert(self, hostname: str, container: str, status: str, expected: str = 'running') -> bool:
         """发送 Docker 告警消息"""
-        content = f"""🐳 **Docker 告警** [{hostname}]
-━━━━━━━━━━━━━━━━
-📦 容器: {container}
-❌ 状态: {status} (期望: {expected})
-⏰ 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+        content = f"""### <font color="warning">Docker 告警</font> [{hostname}]
+
+> **容器**: `{container}`
+> **状态**: <font color="warning">{status}</font>
+> **期望**: <font color="comment">{expected}</font>
+
+**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
         return self.send(content)
 
     def send_recovery(self, hostname: str, metric: str, value: str) -> bool:
         """发送恢复消息"""
-        content = f"""✅ **VPS 恢复** [{hostname}]
-━━━━━━━━━━━━━━━━
-📊 {metric}: {value} (已恢复正常)
-⏰ 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+        content = f"""### <font color="info">VPS 恢复</font> [{hostname}]
+
+> **{metric}**: <font color="info">{value}</font>
+
+**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
         return self.send(content)
 
     def send_docker_recovery(self, hostname: str, container: str, status: str) -> bool:
         """发送 Docker 恢复消息"""
-        content = f"""✅ **Docker 恢复** [{hostname}]
-━━━━━━━━━━━━━━━━
-📦 容器: {container}
-✅ 状态: {status} (已恢复正常)
-⏰ 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+        content = f"""### <font color="info">Docker 恢复</font> [{hostname}]
+
+> **容器**: `{container}`
+> **状态**: <font color="info">{status}</font>
+
+**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
         return self.send(content)
 
     def send_status_report(self, hostname: str, report: Dict) -> bool:
         """发送定时状态报告"""
-        lines = [f"📊 **VPS 状态报告** [{hostname}]", "━━━━━━━━━━━━━━━━━━━━━━"]
+        lines = [f"### VPS 状态报告 [{hostname}]", ""]
 
         # 系统状态
         if 'system' in report:
             sys_info = report['system']
-            lines.append("🖥️ **系统状态**")
+            lines.append("#### 系统状态")
             if 'cpu' in sys_info:
-                lines.append(f"  • CPU: {sys_info['cpu']:.1f}%")
+                lines.append(f"> CPU: **{sys_info['cpu']:.1f}%**")
             if 'memory' in sys_info:
                 mem = sys_info['memory']
-                lines.append(f"  • 内存: {mem['percent']:.1f}% ({mem['used']:.1f}GB / {mem['total']:.1f}GB)")
+                lines.append(f"> 内存: **{mem['percent']:.1f}%** ({mem['used']:.1f}GB / {mem['total']:.1f}GB)")
             if 'swap' in sys_info:
-                lines.append(f"  • Swap: {sys_info['swap']:.1f}%")
+                lines.append(f"> Swap: **{sys_info['swap']:.1f}%**")
             if 'disk' in sys_info:
                 for path, disk in sys_info['disk'].items():
-                    lines.append(f"  • 磁盘({path}): {disk['percent']:.1f}% ({disk['used']:.1f}GB / {disk['total']:.1f}GB)")
+                    lines.append(f"> 磁盘`{path}`: **{disk['percent']:.1f}%** ({disk['used']:.1f}GB / {disk['total']:.1f}GB)")
 
         # 网络状态
         if 'network' in report:
             net_info = report['network']
             lines.append("")
-            lines.append("🌐 **网络状态**")
+            lines.append("#### 网络状态")
             if 'traffic' in net_info:
-                lines.append(f"  • 入站: {net_info['traffic']['in_mbps']:.1f} Mbps")
-                lines.append(f"  • 出站: {net_info['traffic']['out_mbps']:.1f} Mbps")
+                lines.append(f"> 入站: **{net_info['traffic']['in_mbps']:.1f} Mbps**")
+                lines.append(f"> 出站: **{net_info['traffic']['out_mbps']:.1f} Mbps**")
             if 'connections' in net_info:
-                lines.append(f"  • 连接数: {net_info['connections']}")
+                lines.append(f"> 连接数: **{net_info['connections']}**")
 
         # Docker 状态
         if 'docker' in report and report['docker']:
             lines.append("")
-            lines.append("🐳 **Docker 容器**")
+            lines.append("#### Docker 容器")
             for container in report['docker']:
-                status_icon = "✅" if container['status'] == 'running' else "❌"
+                if container['status'] == 'running':
+                    status_text = f"<font color=\"info\">{container['status']}</font>"
+                else:
+                    status_text = f"<font color=\"warning\">{container['status']}</font>"
                 health_str = f" ({container['health']})" if container.get('health') else ""
-                lines.append(f"  • {container['name']}: {status_icon} {container['status']}{health_str}")
+                lines.append(f"> `{container['name']}`: {status_text}{health_str}")
 
         lines.append("")
-        lines.append(f"⏰ 报告时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"**报告时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         return self.send('\n'.join(lines))
 
