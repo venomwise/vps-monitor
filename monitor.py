@@ -30,6 +30,7 @@ try:
     from croniter import croniter
     CRONITER_AVAILABLE = True
 except ImportError:
+    croniter = None  # type: ignore
     CRONITER_AVAILABLE = False
 
 
@@ -105,7 +106,7 @@ class ConfigManager:
         if not webhook_url or webhook_url == 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY':
             logging.warning("企业微信 Webhook URL 未配置，通知功能将不可用")
 
-        if CRONITER_AVAILABLE and self.config.get('scheduled_report', {}).get('enabled'):
+        if CRONITER_AVAILABLE and croniter is not None and self.config.get('scheduled_report', {}).get('enabled'):
             cron_expr = self.config['scheduled_report'].get('cron', '')
             if cron_expr:
                 try:
@@ -113,9 +114,9 @@ class ConfigManager:
                 except (KeyError, ValueError) as e:
                     raise ValueError(f"无效的 Cron 表达式 '{cron_expr}': {e}")
 
-    def get(self, *keys, default=None):
+    def get(self, *keys: str, default: Any = None) -> Any:
         """获取配置项"""
-        value = self.config
+        value: Any = self.config
         for key in keys:
             if isinstance(value, dict):
                 value = value.get(key, default)
@@ -127,7 +128,7 @@ class ConfigManager:
     def hostname(self) -> str:
         """获取主机名"""
         name = self.get('general', 'hostname')
-        return name if name else socket.gethostname()
+        return str(name) if name else socket.gethostname()
 
 
 # ============================================================================
@@ -345,10 +346,11 @@ class SystemCollector:
             'total': swap.total / (1024 ** 3)
         }
 
-    def collect_disk(self, paths: List[str] = None) -> Dict[str, Dict]:
+    def collect_disk(self, paths: Optional[List[str]] = None) -> Dict[str, Dict]:
         """采集磁盘使用率"""
         if paths is None:
-            paths = self.config.get('system', 'disk', 'paths', default=['/'])
+            disk_paths = self.config.get('system', 'disk', 'paths', default=['/'])
+            paths = disk_paths if isinstance(disk_paths, list) else ['/']
 
         result = {}
         for path in paths:
@@ -364,10 +366,11 @@ class SystemCollector:
                 logging.warning(f"无法获取磁盘 {path} 信息: {e}")
         return result
 
-    def collect_cpu(self, interval: float = None) -> float:
+    def collect_cpu(self, interval: Optional[float] = None) -> float:
         """采集 CPU 使用率"""
         if interval is None:
-            interval = self.config.get('system', 'cpu', 'sample_interval', default=1)
+            cfg_interval = self.config.get('system', 'cpu', 'sample_interval', default=1)
+            interval = float(cfg_interval) if isinstance(cfg_interval, (int, float, str)) else 1.0
         return psutil.cpu_percent(interval=interval)
 
     def collect_all(self) -> Dict:
@@ -571,7 +574,7 @@ class DockerCollector:
 
     def get_container_status(self, container_name: str) -> Optional[Dict]:
         """获取指定容器的状态"""
-        if not self.available:
+        if not self.available or self.client is None:
             return None
 
         try:
@@ -587,9 +590,9 @@ class DockerCollector:
                 status['health'] = container.attrs['State']['Health'].get('Status')
 
             return status
-        except docker.errors.NotFound:
-            return {'name': container_name, 'status': 'not_found', 'health': None}
         except Exception as e:
+            if 'NotFound' in type(e).__name__ or '404' in str(e):
+                return {'name': container_name, 'status': 'not_found', 'health': None}
             logging.error(f"获取容器 {container_name} 状态失败: {e}")
             return None
 
@@ -599,10 +602,14 @@ class DockerCollector:
             return []
 
         containers_config = self.config.get('docker', 'containers', default=[])
+        if not isinstance(containers_config, list):
+            return []
         results = []
 
         for container_cfg in containers_config:
             name = container_cfg.get('name') if isinstance(container_cfg, dict) else container_cfg
+            if not isinstance(name, str):
+                continue
             status = self.get_container_status(name)
             if status:
                 results.append(status)
@@ -616,6 +623,8 @@ class DockerCollector:
 
         alerts = []
         containers_config = self.config.get('docker', 'containers', default=[])
+        if not isinstance(containers_config, list):
+            return []
 
         for container_cfg in containers_config:
             if isinstance(container_cfg, dict):
@@ -625,6 +634,8 @@ class DockerCollector:
                 name = container_cfg
                 check_health = False
 
+            if not isinstance(name, str):
+                continue
             status = self.get_container_status(name)
             if not status:
                 continue
@@ -662,8 +673,9 @@ class ScheduledReporter:
     def __init__(self, config: ConfigManager):
         self.config = config
         self.enabled = config.get('scheduled_report', 'enabled', default=False)
-        self.cron_expr = config.get('scheduled_report', 'cron', default='0 9 * * *')
-        self._next_run = None
+        cron_cfg = config.get('scheduled_report', 'cron', default='0 9 * * *')
+        self.cron_expr = str(cron_cfg) if cron_cfg else '0 9 * * *'
+        self._next_run: Optional[datetime] = None
         self._init_schedule()
 
     def _init_schedule(self):
@@ -674,6 +686,9 @@ class ScheduledReporter:
         if not CRONITER_AVAILABLE:
             logging.warning("croniter 库未安装，定时报告功能不可用")
             self.enabled = False
+            return
+
+        if croniter is None:
             return
 
         try:
@@ -693,7 +708,7 @@ class ScheduledReporter:
 
     def update_next_run(self):
         """更新下次执行时间"""
-        if not self.enabled:
+        if not self.enabled or croniter is None:
             return
 
         try:
@@ -747,13 +762,15 @@ class VPSMonitor:
         self.config = ConfigManager(self.config_path)
 
         # 初始化通知器
-        webhook_url = self.config.get('wechat', 'webhook_url', default='')
+        webhook_url_cfg = self.config.get('wechat', 'webhook_url', default='')
+        webhook_url = str(webhook_url_cfg) if webhook_url_cfg else ''
         self.notifier = WeChatNotifier(webhook_url)
 
         # 初始化告警状态管理器
         script_dir = Path(__file__).parent
         state_file = script_dir / 'alert_state.json'
-        cooldown = self.config.get('general', 'alert_cooldown', default=300)
+        cooldown_cfg = self.config.get('general', 'alert_cooldown', default=300)
+        cooldown = int(cooldown_cfg) if isinstance(cooldown_cfg, (int, float, str)) else 300
         self.alert_manager = AlertStateManager(str(state_file), cooldown)
 
         # 初始化采集器
@@ -873,7 +890,8 @@ class VPSMonitor:
         self._setup_signal_handlers()
         self.running = True
 
-        check_interval = self.config.get('general', 'check_interval', default=900)
+        check_interval_cfg = self.config.get('general', 'check_interval', default=900)
+        check_interval = int(check_interval_cfg) if isinstance(check_interval_cfg, (int, float, str)) else 900
         logging.info(f"VPS 监控已启动，检查间隔: {check_interval} 秒")
 
         # 首次运行网络采集以初始化基准值
