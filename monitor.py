@@ -12,7 +12,7 @@ import time
 import signal
 import socket
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -47,7 +47,8 @@ class ConfigManager:
             'check_interval': 900,
             'alert_cooldown': 300,
             'send_recovery': True,
-            'log_level': 'INFO'
+            'log_level': 'INFO',
+            'timezone': ''  # 时区配置，如 'Asia/Shanghai'，留空使用系统时区
         },
         'wechat': {
             'webhook_url': ''
@@ -138,10 +139,53 @@ class ConfigManager:
 class WeChatNotifier:
     """企业微信机器人通知器"""
 
-    def __init__(self, webhook_url: str, max_retries: int = 3):
+    def __init__(self, webhook_url: str, max_retries: int = 3, timezone_str: str = ''):
         self.webhook_url = webhook_url
         self.max_retries = max_retries
         self.enabled = bool(webhook_url and 'YOUR_KEY' not in webhook_url)
+        self._tz = self._parse_timezone(timezone_str)
+
+    def _parse_timezone(self, tz_str: str) -> Optional[timezone]:
+        """解析时区配置"""
+        if not tz_str:
+            return None  # 使用系统本地时间
+        # 支持 UTC+8 或 UTC-5 格式
+        tz_str = tz_str.strip().upper()
+        if tz_str.startswith('UTC'):
+            offset_str = tz_str[3:]
+            if offset_str:
+                try:
+                    # 解析 +8, -5, +08:00 等格式
+                    if ':' in offset_str:
+                        parts = offset_str.split(':')
+                        hours = int(parts[0])
+                        minutes = int(parts[1]) if len(parts) > 1 else 0
+                    else:
+                        hours = int(offset_str)
+                        minutes = 0
+                    return timezone(timedelta(hours=hours, minutes=minutes))
+                except ValueError:
+                    logging.warning(f"无效的时区格式: {tz_str}，使用系统时区")
+                    return None
+            return timezone.utc
+        # 支持常见时区别名
+        tz_aliases = {
+            'CST': timezone(timedelta(hours=8)),  # 中国标准时间
+            'JST': timezone(timedelta(hours=9)),  # 日本标准时间
+            'KST': timezone(timedelta(hours=9)),  # 韩国标准时间
+            'EST': timezone(timedelta(hours=-5)),  # 美国东部
+            'PST': timezone(timedelta(hours=-8)),  # 美国太平洋
+        }
+        if tz_str in tz_aliases:
+            return tz_aliases[tz_str]
+        logging.warning(f"未知的时区: {tz_str}，使用系统时区")
+        return None
+
+    def _get_current_time(self) -> str:
+        """获取当前时间字符串（考虑时区配置）"""
+        if self._tz:
+            return datetime.now(self._tz).strftime('%Y-%m-%d %H:%M:%S')
+        return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     def send(self, content: str, msg_type: str = 'markdown') -> bool:
         """发送消息到企业微信"""
@@ -185,7 +229,7 @@ class WeChatNotifier:
         ]
         for alert in alerts:
             lines.append(f"📊 {alert['metric']}: {alert['value']} (阈值: {alert['threshold']})")
-        lines.append(f"⏰ 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"⏰ 时间: {self._get_current_time()}")
 
         return self.send('\n'.join(lines), msg_type='text')
 
@@ -195,7 +239,7 @@ class WeChatNotifier:
 ━━━━━━━━━━━━━━━━
 📦 容器: {container}
 ❌ 状态: {status} (期望: {expected})
-⏰ 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+⏰ 时间: {self._get_current_time()}"""
         return self.send(content, msg_type='text')
 
     def send_recovery(self, hostname: str, metric: str, value: str) -> bool:
@@ -203,7 +247,7 @@ class WeChatNotifier:
         content = f"""✅ VPS 恢复 [{hostname}]
 ━━━━━━━━━━━━━━━━
 📊 {metric}: {value} (已恢复正常)
-⏰ 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+⏰ 时间: {self._get_current_time()}"""
         return self.send(content, msg_type='text')
 
     def send_docker_recovery(self, hostname: str, container: str, status: str) -> bool:
@@ -212,7 +256,7 @@ class WeChatNotifier:
 ━━━━━━━━━━━━━━━━
 📦 容器: {container}
 ✅ 状态: {status} (已恢复正常)
-⏰ 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+⏰ 时间: {self._get_current_time()}"""
         return self.send(content, msg_type='text')
 
     def send_status_report(self, hostname: str, report: Dict) -> bool:
@@ -255,7 +299,7 @@ class WeChatNotifier:
                 lines.append(f"  • {container['name']}: {status_icon} {container['status']}{health_str}")
 
         lines.append("")
-        lines.append(f"⏰ 报告时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"⏰ 报告时间: {self._get_current_time()}")
 
         return self.send('\n'.join(lines), msg_type='text')
 
@@ -767,7 +811,9 @@ class VPSMonitor:
         # 初始化通知器
         webhook_url_cfg = self.config.get('wechat', 'webhook_url', default='')
         webhook_url = str(webhook_url_cfg) if webhook_url_cfg else ''
-        self.notifier = WeChatNotifier(webhook_url)
+        timezone_cfg = self.config.get('general', 'timezone', default='')
+        timezone_str = str(timezone_cfg) if timezone_cfg else ''
+        self.notifier = WeChatNotifier(webhook_url, timezone_str=timezone_str)
 
         # 初始化告警状态管理器
         script_dir = Path(__file__).parent
@@ -819,14 +865,7 @@ class VPSMonitor:
         # 获取当前告警的 key 集合
         current_alert_keys = {a['key'] for a in alerts}
 
-        # 检查恢复
-        if send_recovery:
-            for active_key in self.alert_manager.get_active_alerts():
-                if active_key.startswith('system_') and active_key not in current_alert_keys:
-                    self.notifier.send_recovery(hostname, active_key, "已恢复正常")
-                    self.alert_manager.clear_alert(active_key)
-
-        # 发送新告警
+        # 先发送新告警（在恢复检查之前，避免同时发送告警和恢复）
         alerts_to_send = []
         for alert in alerts:
             if self.alert_manager.should_alert(alert['key']):
@@ -835,6 +874,37 @@ class VPSMonitor:
 
         if alerts_to_send:
             self.notifier.send_alert(hostname, alerts_to_send)
+
+        # 检查恢复（只有当前没有触发告警的 key 才发送恢复）
+        if send_recovery:
+            for active_key in self.alert_manager.get_active_alerts():
+                # 只处理 system_ 或 network_ 前缀的告警
+                if (active_key.startswith('system_') or active_key.startswith('network_')) \
+                        and active_key not in current_alert_keys:
+                    # 生成友好的恢复消息
+                    metric_name = self._get_metric_display_name(active_key)
+                    self.notifier.send_recovery(hostname, metric_name, "已恢复正常")
+                    self.alert_manager.clear_alert(active_key)
+
+    def _get_metric_display_name(self, alert_key: str) -> str:
+        """将告警 key 转换为友好的显示名称"""
+        key_mapping = {
+            'system_memory': '内存使用率',
+            'system_swap': 'Swap使用率',
+            'system_cpu': 'CPU使用率',
+            'network_traffic_in': '入站流量',
+            'network_traffic_out': '出站流量',
+            'network_connections': '网络连接数',
+        }
+        # 直接匹配
+        if alert_key in key_mapping:
+            return key_mapping[alert_key]
+        # 磁盘告警特殊处理: system_disk_/ -> 磁盘使用率(/)
+        if alert_key.startswith('system_disk_'):
+            path = alert_key[len('system_disk_'):]
+            return f'磁盘使用率({path})'
+        # 未知 key，返回原始值
+        return alert_key
 
     def _process_docker_alerts(self, alerts: List[Dict]):
         """处理 Docker 告警"""

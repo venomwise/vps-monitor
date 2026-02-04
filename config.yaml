@@ -8,6 +8,8 @@ general:
   alert_cooldown: 300       # 告警冷却时间（秒），默认 5 分钟
   send_recovery: true       # 是否发送恢复通知
   log_level: "INFO"         # 日志级别: DEBUG, INFO, WARNING, ERROR
+  timezone: ""              # 告警时间的时区，留空使用系统时区
+                            # 支持格式: UTC+8, UTC-5, CST(中国), JST(日本), EST(美东), PST(美西)
 
 # 企业微信机器人配置
 wechat:
