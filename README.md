@@ -13,18 +13,42 @@
 
 ## 快速开始
 
-### 1. 安装依赖
+### 一键安装（推荐）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/venomwise/vps-monitor/main/install.sh | sudo bash
+```
+
+一键安装会自动完成：
+- 下载程序文件到 `/opt/vps-monitor/`
+- 安装 Python 依赖
+- 配置 systemd 服务
+
+安装完成后，编辑配置文件并启动服务：
+
+```bash
+sudo vim /opt/vps-monitor/config.yaml  # 填入企业微信 Webhook URL
+sudo systemctl start vps-monitor
+```
+
+**更新程序**：再次运行一键安装命令即可，配置文件会保留。
+
+---
+
+### 手动安装
+
+#### 1. 安装依赖
 
 ```bash
 # Ubuntu/Debian
 sudo apt update
-sudo apt install python3 python3-pip
+sudo apt install python3 python3-pip curl
 
 # 安装 Python 依赖
 pip3 install -r requirements.txt
 ```
 
-### 2. 配置
+#### 2. 配置
 
 编辑 `config.yaml` 文件：
 
@@ -43,13 +67,13 @@ docker:
       check_health: true
 ```
 
-### 3. 安装服务
+#### 3. 安装服务
 
 ```bash
 sudo ./install.sh
 ```
 
-### 4. 启动服务
+#### 4. 启动服务
 
 ```bash
 sudo systemctl start vps-monitor

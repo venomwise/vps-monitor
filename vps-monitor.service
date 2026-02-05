@@ -1,6 +1,6 @@
 [Unit]
 Description=VPS Monitor Service
-Documentation=https://github.com/your-repo/vps-monitor
+Documentation=https://github.com/venomwise/vps-monitor
 After=network.target docker.service
 Wants=docker.service
 

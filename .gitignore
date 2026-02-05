@@ -24,3 +24,6 @@ env/
 *.log
 alert_state.json
 logs/
+
+# claude
+.claude/
