@@ -23,18 +23,24 @@ echo_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 echo_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # 检测运行模式：本地 or 远程
-# 通过 curl | bash 运行时，BASH_SOURCE[0] 为空或为 bash
+# 通过 curl | bash 运行时，脚本从 stdin 读取，没有实际的脚本文件路径
 detect_run_mode() {
-    if [ -z "${BASH_SOURCE[0]}" ] || [ "${BASH_SOURCE[0]}" = "bash" ]; then
-        echo "remote"
-    else
-        local script_dir
-        script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-        if [ -f "$script_dir/monitor.py" ]; then
-            echo "local"
-        else
+    # 检查是否从 stdin 运行（curl | bash 的情况）
+    if [ -p /dev/stdin ] || [ ! -t 0 ]; then
+        # 进一步检查：BASH_SOURCE[0] 是否指向一个真实存在的脚本文件
+        if [ -z "${BASH_SOURCE[0]}" ] || [ ! -f "${BASH_SOURCE[0]}" ]; then
             echo "remote"
+            return
         fi
+    fi
+
+    # 检查脚本所在目录是否有 monitor.py（本地模式的标志）
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-/tmp}")" 2>/dev/null && pwd)" || script_dir="/tmp"
+    if [ -f "$script_dir/monitor.py" ]; then
+        echo "local"
+    else
+        echo "remote"
     fi
 }
 
