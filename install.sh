@@ -12,6 +12,20 @@ GITHUB_RAW_URL="https://raw.githubusercontent.com/venomwise/vps-monitor/main"
 INSTALL_DIR="/opt/vps-monitor"
 SERVICE_FILE="/etc/systemd/system/vps-monitor.service"
 
+# Python 包文件清单（远程模式逐个下载）
+PACKAGE_FILES=(
+    "vps_monitor/__init__.py"
+    "vps_monitor/app.py"
+    "vps_monitor/config.py"
+    "vps_monitor/notifier.py"
+    "vps_monitor/scheduler.py"
+    "vps_monitor/state.py"
+    "vps_monitor/collectors/__init__.py"
+    "vps_monitor/collectors/system.py"
+    "vps_monitor/collectors/network.py"
+    "vps_monitor/collectors/docker.py"
+)
+
 # 颜色输出
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -54,6 +68,14 @@ download_file() {
         echo_error "下载 $filename 失败"
         return 1
     fi
+}
+
+download_package_files() {
+    local filepath
+    for filepath in "${PACKAGE_FILES[@]}"; do
+        mkdir -p "$(dirname "$INSTALL_DIR/$filepath")"
+        download_file "$filepath" "$INSTALL_DIR/$filepath"
+    done
 }
 
 # 检查 root 权限
@@ -109,6 +131,7 @@ if [ "$RUN_MODE" = "remote" ]; then
     download_file "monitor.py" "$INSTALL_DIR/monitor.py"
     download_file "requirements.txt" "$INSTALL_DIR/requirements.txt"
     download_file "vps-monitor.service" "$SERVICE_FILE"
+    download_package_files
 
     # 配置文件：仅首次安装时下载
     if [ "$IS_UPDATE" = false ]; then
@@ -128,6 +151,7 @@ else
         cp "$SCRIPT_DIR/monitor.py" "$INSTALL_DIR/"
         cp "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
         cp "$SCRIPT_DIR/vps-monitor.service" "$SERVICE_FILE"
+        cp -r "$SCRIPT_DIR/vps_monitor" "$INSTALL_DIR/"
 
         # 配置文件：仅首次安装时复制
         if [ "$IS_UPDATE" = false ]; then

@@ -149,13 +149,29 @@ sudo ./uninstall.sh
 
 ```
 /opt/vps-monitor/
-├── monitor.py          # 主程序
+├── monitor.py          # 入口文件（保持兼容）
+├── vps_monitor/        # 核心业务模块
+│   ├── app.py          # 主监控编排
+│   ├── config.py       # 配置管理
+│   ├── notifier.py     # 企业微信通知
+│   ├── state.py        # 告警状态持久化
+│   ├── scheduler.py    # 定时报告调度
+│   └── collectors/     # 指标采集器
+│       ├── system.py
+│       ├── network.py
+│       └── docker.py
 ├── config.yaml         # 配置文件
 ├── requirements.txt    # Python 依赖
 ├── alert_state.json    # 告警状态（运行时生成）
 └── logs/
     └── monitor.log     # 日志文件
 ```
+
+## 开发说明
+
+- 运行入口保持不变：`python3 monitor.py`
+- `monitor.py` 仅负责启动流程，业务逻辑位于 `vps_monitor/` 包内
+- 扩展监控能力时，优先在 `vps_monitor/collectors/` 中新增或修改采集器
 
 ## 消息格式示例
 
